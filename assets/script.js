@@ -334,7 +334,7 @@ function Update() {
 
     if (currentLevel < levels.length - 1) {
       ctx.font = "20px 'Courier New', Courier, monospace";
-      ctx.fillText('Press Space to Continue', canvas.width / 2, canvas.height / 2 + 40);
+      ctx.fillText('Press Space or Tap to Continue', canvas.width / 2, canvas.height / 2 + 40);
 
       if (keys['Space']) {
         currentLevel++;
@@ -402,6 +402,14 @@ function RandomIntInRange(min, max) {
 Init();
 
 function handleTouchStart(evt) {
+    // If on level complete screen, any tap continues
+    if (level_complete && currentLevel < levels.length - 1) {
+        currentLevel++;
+        level_complete = false;
+        LoadLevel(currentLevel);
+        return; // Don't process movement controls
+    }
+
     evt.preventDefault();
     const touches = evt.changedTouches;
     for (let i = 0; i < touches.length; i++) {
