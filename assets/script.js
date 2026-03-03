@@ -19,10 +19,16 @@ let currentLevel = 0;
 let levels = [];
 let goal;
 let camera_x = 0;
+let touchControls = {};
+let activeTouches = {};
 
 // Event Listeners
 document.addEventListener('keydown', (evt) => { keys[evt.code] = true; });
 document.addEventListener('keyup', (evt) => { keys[evt.code] = false; });
+
+document.addEventListener('touchstart', handleTouchStart, { passive: false });
+document.addEventListener('touchend', handleTouchEnd, { passive: false });
+document.addEventListener('touchmove', handleTouchMove, { passive: false });
 
 // --- Classes ---
 class Player {
@@ -56,7 +62,7 @@ class Player {
     }
 
     // Jump
-    if (keys['Space'] || keys['KeyW']) {
+    if (keys['ArrowUp'] || keys['KeyW']) {
       this.Jump();
     }
 
@@ -256,6 +262,15 @@ function Init() {
   highscoreText = new Text('Highscore: ' + highscore, canvas.width - 25, 25, 'right', '#212121', '30');
   authorText = new Text('create by RICKI', canvas.width - 25, canvas.height - 25, 'right', 'rgba(0, 0, 0, 0.3)', '20');
 
+  // Define touch controls based on canvas size
+  const buttonSize = 80;
+  const buttonMargin = 20;
+  touchControls = {
+      left: { x: buttonMargin, y: canvas.height - buttonSize - buttonMargin, w: buttonSize, h: buttonSize, key: 'ArrowLeft' },
+      right: { x: buttonSize + buttonMargin * 2, y: canvas.height - buttonSize - buttonMargin, w: buttonSize, h: buttonSize, key: 'ArrowRight' },
+      jump: { x: canvas.width - buttonSize - buttonMargin, y: canvas.height - buttonSize - buttonMargin, w: buttonSize, h: buttonSize, key: 'ArrowUp' }
+  };
+
   // We need to load the player image before starting the game
   let playerImage = new Image();
   playerImage.src = 'assets/mario_cat.png';
@@ -374,6 +389,9 @@ function Update() {
   // Update camera
   let target_camera_x = player.x - canvas.width / 3;
   camera_x += (target_camera_x - camera_x) * 0.05;
+
+  // Draw touch controls
+  drawTouchControls();
 }
 
 function RandomIntInRange(min, max) {
@@ -382,3 +400,81 @@ function RandomIntInRange(min, max) {
 
 // --- Start ---
 Init();
+
+function handleTouchStart(evt) {
+    evt.preventDefault();
+    const touches = evt.changedTouches;
+    for (let i = 0; i < touches.length; i++) {
+        const touch = touches[i];
+        activeTouches[touch.identifier] = { x: touch.clientX, y: touch.clientY };
+        checkTouch(touch.clientX, touch.clientY, true);
+    }
+}
+
+function handleTouchEnd(evt) {
+    evt.preventDefault();
+    const touches = evt.changedTouches;
+    for (let i = 0; i < touches.length; i++) {
+        const touch = touches[i];
+        delete activeTouches[touch.identifier];
+        checkTouch(touch.clientX, touch.clientY, false);
+    }
+    // Reset all keys just in case
+    keys[touchControls.left.key] = false;
+    keys[touchControls.right.key] = false;
+    keys[touchControls.jump.key] = false;
+    // Re-evaluate remaining active touches
+    for(const id in activeTouches) {
+        checkTouch(activeTouches[id].x, activeTouches[id].y, true);
+    }
+}
+
+function handleTouchMove(evt) {
+    evt.preventDefault();
+    const touches = evt.changedTouches;
+    // First, reset keys for touches that moved away from their buttons
+    for (let i = 0; i < touches.length; i++) {
+        const touch = touches[i];
+        checkTouch(activeTouches[touch.identifier].x, activeTouches[touch.identifier].y, false);
+    }
+    // Then, process the new positions
+    for (let i = 0; i < touches.length; i++) {
+        const touch = touches[i];
+        activeTouches[touch.identifier] = { x: touch.clientX, y: touch.clientY };
+        checkTouch(touch.clientX, touch.clientY, true);
+    }
+}
+
+function checkTouch(x, y, isPressed) {
+    for (const dir in touchControls) {
+        const button = touchControls[dir];
+        if (x > button.x && x < button.x + button.w && y > button.y && y < button.y + button.h) {
+            keys[button.key] = isPressed;
+        }
+    }
+}
+
+function drawTouchControls() {
+    ctx.save();
+    ctx.globalAlpha = 0.5; // Set transparency
+    ctx.fillStyle = '#888';
+    ctx.font = "bold 48px 'Courier New', Courier, monospace";
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Draw buttons
+    for (const dir in touchControls) {
+        const button = touchControls[dir];
+        ctx.beginPath();
+        ctx.roundRect(button.x, button.y, button.w, button.h, [15]);
+        ctx.fill();
+    }
+
+    // Draw labels
+    ctx.fillStyle = '#fff';
+    ctx.fillText('<', touchControls.left.x + touchControls.left.w / 2, touchControls.left.y + touchControls.left.h / 2);
+    ctx.fillText('>', touchControls.right.x + touchControls.right.w / 2, touchControls.right.y + touchControls.right.h / 2);
+    ctx.fillText('^', touchControls.jump.x + touchControls.jump.w / 2, touchControls.jump.y + touchControls.jump.h / 2);
+
+    ctx.restore();
+}
