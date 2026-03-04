@@ -11,10 +11,13 @@ let player;
 let gravity;
 let obstacles = [];
 let coins = [];
+let enemies = [];
+let traps = [];
 let gameSpeed;
 let keys = {};
 let game_over = false;
 let level_complete = false;
+let game_started = false;
 let currentLevel = 0;
 let levels = [];
 let goal;
@@ -23,7 +26,19 @@ let touchControls = {};
 let activeTouches = {};
 
 // Event Listeners
-document.addEventListener('keydown', (evt) => { keys[evt.code] = true; });
+document.addEventListener('keydown', (evt) => {
+  if (game_over && evt.code === 'Space') {
+    score = 0;
+    game_over = false;
+    LoadLevel(currentLevel);
+    return;
+  }
+
+  if (!game_started && evt.code === 'Space') {
+    game_started = true;
+  }
+  keys[evt.code] = true;
+});
 document.addEventListener('keyup', (evt) => { keys[evt.code] = false; });
 
 document.addEventListener('touchstart', handleTouchStart, { passive: false });
@@ -118,6 +133,51 @@ class Player {
     }
     ctx.restore(); // Restore the context to its original state
   }
+}
+
+class Enemy {
+  constructor(x, y, w, h, speed, range) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+    this.image = new Image();
+    this.image.src = 'assets/enemy.png';
+
+    this.dx = -speed;
+    this.speed = speed;
+    this.range = range;
+    this.startX = x;
+  }
+
+  Update() {
+    this.x += this.dx;
+    if (this.x < this.startX - this.range || this.x > this.startX + this.range) {
+      this.dx *= -1; // Reverse direction
+    }
+    this.Draw();
+  }
+
+  Draw() {
+    ctx.drawImage(this.image, this.x - camera_x, this.y, this.w, this.h);
+  }
+}
+
+class Trap {
+    constructor(x, y, w, h) {
+        this.x = x;
+        this.y = y;
+        this.w = w;
+        this.h = h;
+        this.c = '#9E9E9E'; // A gray color for traps
+    }
+
+    Draw() {
+        ctx.beginPath();
+        ctx.fillStyle = this.c;
+        ctx.fillRect(this.x - camera_x, this.y, this.w, this.h);
+        ctx.closePath();
+    }
 }
 
 class Coin {
@@ -234,7 +294,13 @@ function Init() {
         { x: 1000, y: canvas.height - 260, r: 10 },
         { x: 1250, y: canvas.height - 340, r: 10 }
       ],
-      goal: { x: 1400, y: canvas.height - 70, w: 20, h: 50 }
+      goal: { x: 1400, y: canvas.height - 70, w: 20, h: 50 },
+      enemies: [
+        { x: 750, y: canvas.height - 190, speed: 1, range: 80 }
+      ],
+      traps: [
+        { x: 450, y: canvas.height - 40, w: 150, h: 20 }
+      ]
     },
     // Level 3: Expert
     {
@@ -254,13 +320,25 @@ function Init() {
         { x: 1150, y: canvas.height - 290, r: 10 },
         { x: 1350, y: canvas.height - 360, r: 10 }
       ],
-      goal: { x: 1500, y: canvas.height - 70, w: 20, h: 50 }
+      goal: { x: 1500, y: canvas.height - 70, w: 20, h: 50 },
+      enemies: [
+        { x: 550, y: canvas.height - 220, speed: 1.5, range: 70 },
+        { x: 1150, y: canvas.height - 290, speed: 2, range: 100 }
+      ],
+      traps: [
+        { x: 300, y: canvas.height - 60, w: 100, h: 20 },
+        { x: 900, y: canvas.height - 140, w: 100, h: 20 }
+      ]
     }
   ];
 
-  scoreText = new Text('Score: ' + score, 25, 25, 'left', '#212121', '30');
-  highscoreText = new Text('Highscore: ' + highscore, canvas.width - 25, 25, 'right', '#212121', '30');
-  authorText = new Text('create by RICKI', canvas.width - 25, canvas.height - 25, 'right', 'rgba(0, 0, 0, 0.3)', '20');
+    // Adapt font size for mobile
+  let scoreFontSize = (canvas.width < 768) ? '20' : '30';
+  let authorFontSize = (canvas.width < 768) ? '14' : '20';
+
+  scoreText = new Text('Score: ' + score, 25, 25, 'left', '#212121', scoreFontSize);
+  highscoreText = new Text('Highscore: ' + highscore, canvas.width - 25, 25, 'right', '#212121', scoreFontSize);
+  authorText = new Text('create by RICKI', canvas.width - 25, canvas.height - 25, 'right', 'rgba(0, 0, 0, 0.3)', authorFontSize);
 
   // Define touch controls based on canvas size
   const buttonSize = 80;
@@ -289,6 +367,8 @@ function LoadLevel(levelIndex) {
   // Clear old level data
   obstacles = [];
   coins = [];
+  enemies = [];
+  traps = [];
 
   // Load platforms
   for (let i = 0; i < level.platforms.length; i++) {
@@ -300,6 +380,22 @@ function LoadLevel(levelIndex) {
   for (let i = 0; i < level.coins.length; i++) {
     let c = level.coins[i];
     coins.push(new Coin(c.x, c.y, c.r, '#FFD700'));
+  }
+
+  // Load enemies
+  if (level.enemies) {
+    for (let i = 0; i < level.enemies.length; i++) {
+      let e = level.enemies[i];
+      enemies.push(new Enemy(e.x, e.y, 40, 40, e.speed, e.range));
+    }
+  }
+
+  // Load traps
+  if (level.traps) {
+      for (let i = 0; i < level.traps.length; i++) {
+          let t = level.traps[i];
+          traps.push(new Trap(t.x, t.y, t.w, t.h));
+      }
   }
 
   // Load goal
@@ -318,6 +414,23 @@ function LoadLevel(levelIndex) {
 function Update() {
   requestAnimationFrame(Update);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!game_started) {
+    DrawStartScreen();
+    return;
+  }
+
+  if (game_over) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'white';
+    ctx.font = "bold 48px 'Courier New', Courier, monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2);
+    ctx.font = "20px 'Courier New', Courier, monospace";
+    ctx.fillText('Press Space or Tap to Restart', canvas.width / 2, canvas.height / 2 + 40);
+    return;
+  }
 
   if (level_complete) {
     let message = 'YOU WIN!';
@@ -348,6 +461,32 @@ function Update() {
   // Draw all obstacles (platforms)
   for (let i = 0; i < obstacles.length; i++) {
     obstacles[i].Update();
+  }
+
+  // Draw all traps and check for collision
+  for (let i = 0; i < traps.length; i++) {
+    let t = traps[i];
+    t.Draw();
+    if (player.x < t.x + t.w && player.x + player.w > t.x && player.y < t.y + t.h && player.y + player.h > t.y) {
+        game_over = true;
+    }
+  }
+
+  // Draw all enemies and check for collision
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    let e = enemies[i];
+    e.Update();
+
+    // Check for collision with player
+    if (player.x < e.x + e.w && player.x + player.w > e.x && player.y < e.y + e.h && player.y + player.h > e.y) {
+        // Player is falling on top of the enemy
+        if (player.dy > 0 && (player.y + player.h - player.dy) <= e.y) {
+            enemies.splice(i, 1); // Kill the enemy
+            player.dy = -player.jumpForce / 2; // Small bounce
+        } else {
+            game_over = true; // Player hit from side or bottom
+        }
+    }
   }
 
   // Draw and check for coin collection
@@ -398,10 +537,40 @@ function RandomIntInRange(min, max) {
   return Math.round(Math.random() * (max - min) + min);
 }
 
+function DrawStartScreen() {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = 'white';
+  ctx.font = "bold 48px 'Courier New', Courier, monospace";
+  ctx.textAlign = 'center';
+  ctx.fillText('CATS 404', canvas.width / 2, canvas.height / 2 - 150);
+
+  ctx.font = "20px 'Courier New', Courier, monospace";
+  ctx.fillText('Use [A][D] or [<][>] to Move', canvas.width / 2, canvas.height / 2 - 50);
+  ctx.fillText('Use [W] or [^] to Jump', canvas.width / 2, canvas.height / 2 - 20);
+  ctx.fillText('Collect all coins and reach the green flag!', canvas.width / 2, canvas.height / 2 + 10);
+
+  ctx.font = "bold 24px 'Courier New', Courier, monospace";
+  ctx.fillText('Press Space or Tap to Start', canvas.width / 2, canvas.height / 2 + 80);
+}
+
 // --- Start ---
 Init();
 
 function handleTouchStart(evt) {
+    if (game_over) {
+        score = 0;
+        game_over = false;
+        LoadLevel(currentLevel);
+        return;
+    }
+
+    if (!game_started) {
+        game_started = true;
+        return;
+    }
+
     // If on level complete screen, any tap continues
     if (level_complete && currentLevel < levels.length - 1) {
         currentLevel++;
