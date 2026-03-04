@@ -445,6 +445,11 @@ function Update() {
     ctx.textAlign = 'center';
     ctx.fillText(message, canvas.width / 2, canvas.height / 2);
 
+    if (message === 'YOU WIN!') {
+      ctx.font = "bold 24px 'Courier New', Courier, monospace";
+      ctx.fillText('Final Score: ' + score, canvas.width / 2, canvas.height / 2 + 40);
+    }
+
     if (currentLevel < levels.length - 1) {
       ctx.font = "20px 'Courier New', Courier, monospace";
       ctx.fillText('Press Space or Tap to Continue', canvas.width / 2, canvas.height / 2 + 40);
