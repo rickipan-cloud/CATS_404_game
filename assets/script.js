@@ -25,6 +25,14 @@ let camera_x = 0;
 let touchControls = {};
 let activeTouches = {};
 
+// Game resources
+const resources = {
+  playerImage: new Image(),
+  enemyImage: new Image()
+};
+let resourcesLoaded = 0;
+const totalResources = Object.keys(resources).length;
+
 // Event Listeners
 document.addEventListener('keydown', (evt) => {
   if (game_over && evt.code === 'Space') {
@@ -52,18 +60,21 @@ class Player {
     this.y = y;
     this.w = w;
     this.h = h;
-    this.image = new Image();
-    this.image.src = 'assets/mario_cat.png'; // The new player image
+    this.image = resources.playerImage; // Use preloaded image
     this.facingRight = true;
 
     this.dx = 0;
     this.dy = 0;
     this.jumpForce = 18; // Increased jump force
     this.speed = 5;
-    this.friction = 0.8;
+    this.friction = 0.85; // Slightly higher friction for more responsive movement
     this.originalHeight = h;
     this.grounded = false;
     this.jumpTimer = 0;
+    this.coyoteTime = 0; // Grace period for jumps after falling off platforms
+    this.maxCoyoteTime = 6; // ~0.1s grace period
+    this.jumpBuffer = 0; // Buffer for jump inputs before landing
+    this.maxJumpBuffer = 6; // ~0.1s buffer
   }
 
   Animate() {
@@ -76,9 +87,27 @@ class Player {
       this.facingRight = true;
     }
 
-    // Jump
+    // Jump buffer system
     if (keys['ArrowUp'] || keys['KeyW']) {
+      if (this.jumpBuffer <= 0) {
+        this.jumpBuffer = this.maxJumpBuffer;
+      }
+    } else if (this.jumpBuffer > 0) {
+      this.jumpBuffer--;
+    }
+
+    // Coyote time system
+    if (this.grounded) {
+      this.coyoteTime = this.maxCoyoteTime;
+    } else if (this.coyoteTime > 0) {
+      this.coyoteTime--;
+    }
+
+    // Jump with coyote time and buffer support
+    if (this.jumpBuffer > 0 && (this.grounded || this.coyoteTime > 0)) {
       this.Jump();
+      this.jumpBuffer = 0;
+      this.coyoteTime = 0;
     }
 
     // Apply friction
@@ -91,13 +120,19 @@ class Player {
     this.x += this.dx;
     this.y += this.dy;
 
+    // World bounds
+    if (this.x < 0) {
+        this.x = 0;
+    }
+
     // Ground check & Platform collision
+    let wasGrounded = this.grounded;
     this.grounded = false; // Assume not grounded unless a collision is detected
     for (let i = 0; i < obstacles.length; i++) {
         let o = obstacles[i];
         if (this.x < o.x + o.w && this.x + this.w > o.x && this.y < o.y + o.h && this.y + this.h > o.y) {
             // Check for collision from top
-            if (this.dy > 0 && this.y + this.h - this.dy <= o.y) {
+            if (this.dy > 0 && this.y + this.h - this.dy <= o.y + 2) { // 2px tolerance for edge cases
                 this.y = o.y - this.h;
                 this.grounded = true;
                 this.dy = 0;
@@ -106,7 +141,7 @@ class Player {
     }
 
     // Fallback to canvas floor if no platform is hit
-    if (this.y + this.h > canvas.height) {
+    if (this.y + this.h >= canvas.height) {
         this.y = canvas.height - this.h;
         this.grounded = true;
         this.dy = 0;
@@ -141,8 +176,7 @@ class Enemy {
     this.y = y;
     this.w = w;
     this.h = h;
-    this.image = new Image();
-    this.image.src = 'assets/enemy.png';
+    this.image = resources.enemyImage; // Use preloaded image
 
     this.dx = -speed;
     this.speed = speed;
@@ -207,10 +241,21 @@ class Goal {
   }
 
   Draw() {
+    const poleWidth = 5;
+    const poleX = this.x - camera_x + (this.w / 2) - (poleWidth / 2);
+
+    // Draw the pole
+    ctx.fillStyle = '#8D6E63'; // Brown color for the pole
+    ctx.fillRect(poleX, this.y, poleWidth, this.h);
+
+    // Draw the flag
+    ctx.fillStyle = '#4CAF50'; // Green color for the flag
     ctx.beginPath();
-    ctx.fillStyle = this.c;
-    ctx.fillRect(this.x - camera_x, this.y, this.w, this.h);
+    ctx.moveTo(poleX + poleWidth, this.y);
+    ctx.lineTo(poleX + poleWidth + 30, this.y + 15);
+    ctx.lineTo(poleX + poleWidth, this.y + 30);
     ctx.closePath();
+    ctx.fill();
   }
 }
 
@@ -267,67 +312,74 @@ function Init() {
     // Level 1: Tutorial
     {
       platforms: [
-        { x: 0, y: canvas.height - 20, w: 500, h: 20 },
-        { x: 600, y: canvas.height - 120, w: 200, h: 20 },
-        { x: 900, y: canvas.height - 220, w: 200, h: 20 }
+        { x: 0, y: canvas.height - 20, w: 150, h: 20 },
+        { x: 250, y: canvas.height - 120, w: 200, h: 20 },
+        { x: 550, y: canvas.height - 220, w: 200, h: 20 },
+        { x: 850, y: canvas.height - 120, w: 150, h: 20 },
+        { x: 1100, y: canvas.height - 20, w: 100, h: 20 }
       ],
       coins: [
-        { x: 650, y: canvas.height - 160, r: 10 },
-        { x: 750, y: canvas.height - 160, r: 10 },
-        { x: 950, y: canvas.height - 260, r: 10 },
-        { x: 1050, y: canvas.height - 260, r: 10 }
+        { x: 300, y: canvas.height - 160, r: 10 },
+        { x: 400, y: canvas.height - 160, r: 10 },
+        { x: 600, y: canvas.height - 260, r: 10 },
+        { x: 700, y: canvas.height - 260, r: 10 }
       ],
-      goal: { x: 1200, y: canvas.height - 70, w: 20, h: 50 }
+      goal: { x: 1120, y: canvas.height - 70, w: 20, h: 50 },
+      traps: [
+        { x: 150, y: canvas.height - 20, w: 950, h: 20 }
+      ]
     },
     // Level 2: Advanced
     {
       platforms: [
-        { x: 0, y: canvas.height - 20, w: 300, h: 20 },
-        { x: 450, y: canvas.height - 80, w: 150, h: 20 },
-        { x: 700, y: canvas.height - 150, w: 150, h: 20 },
-        { x: 950, y: canvas.height - 220, w: 150, h: 20 },
-        { x: 1200, y: canvas.height - 300, w: 100, h: 20 }
+        { x: 0, y: canvas.height - 20, w: 120, h: 20 },
+        { x: 250, y: canvas.height - 80, w: 150, h: 20 },
+        { x: 500, y: canvas.height - 150, w: 150, h: 20 },
+        { x: 750, y: canvas.height - 220, w: 150, h: 20 },
+        { x: 1000, y: canvas.height - 300, w: 100, h: 20 },
+        { x: 1200, y: canvas.height - 20, w: 100, h: 20 }
       ],
       coins: [
-        { x: 500, y: canvas.height - 120, r: 10 },
-        { x: 750, y: canvas.height - 190, r: 10 },
-        { x: 1000, y: canvas.height - 260, r: 10 },
-        { x: 1250, y: canvas.height - 340, r: 10 }
+        { x: 300, y: canvas.height - 120, r: 10 },
+        { x: 550, y: canvas.height - 190, r: 10 },
+        { x: 800, y: canvas.height - 260, r: 10 },
+        { x: 1050, y: canvas.height - 340, r: 10 }
       ],
-      goal: { x: 1400, y: canvas.height - 70, w: 20, h: 50 },
+      goal: { x: 1220, y: canvas.height - 70, w: 20, h: 50 },
       enemies: [
-        { x: 750, y: canvas.height - 190, speed: 1, range: 80 }
+        { x: 550, y: canvas.height - 190, speed: 1, range: 80 }
       ],
       traps: [
-        { x: 450, y: canvas.height - 40, w: 150, h: 20 }
+        { x: 120, y: canvas.height - 20, w: 1080, h: 20 }
       ]
     },
     // Level 3: Expert
     {
       platforms: [
-        { x: 0, y: canvas.height - 20, w: 150, h: 20 },
-        { x: 300, y: canvas.height - 100, w: 100, h: 20 },
-        { x: 500, y: canvas.height - 180, w: 100, h: 20 },
-        // "Leap of faith"
-        { x: 900, y: canvas.height - 180, w: 100, h: 20 },
-        { x: 1100, y: canvas.height - 250, w: 100, h: 20 },
-        { x: 1300, y: canvas.height - 320, w: 100, h: 20 }
+        { x: 0, y: canvas.height - 20, w: 100, h: 20 },
+        { x: 200, y: canvas.height - 100, w: 100, h: 20 },
+        { x: 400, y: canvas.height - 180, w: 100, h: 20 },
+        { x: 600, y: canvas.height - 180, w: 100, h: 20 },
+        { x: 800, y: canvas.height - 180, w: 100, h: 20 },
+        { x: 1000, y: canvas.height - 250, w: 100, h: 20 },
+        { x: 1200, y: canvas.height - 320, w: 100, h: 20 },
+        { x: 1400, y: canvas.height - 20, w: 100, h: 20 }
       ],
       coins: [
-        { x: 350, y: canvas.height - 140, r: 10 },
-        { x: 550, y: canvas.height - 220, r: 10 },
-        { x: 950, y: canvas.height - 220, r: 10 },
-        { x: 1150, y: canvas.height - 290, r: 10 },
-        { x: 1350, y: canvas.height - 360, r: 10 }
+        { x: 250, y: canvas.height - 140, r: 10 },
+        { x: 450, y: canvas.height - 220, r: 10 },
+        { x: 650, y: canvas.height - 220, r: 10 },
+        { x: 850, y: canvas.height - 220, r: 10 },
+        { x: 1050, y: canvas.height - 290, r: 10 },
+        { x: 1250, y: canvas.height - 360, r: 10 }
       ],
-      goal: { x: 1500, y: canvas.height - 70, w: 20, h: 50 },
+      goal: { x: 1420, y: canvas.height - 70, w: 20, h: 50 },
       enemies: [
-        { x: 550, y: canvas.height - 220, speed: 1.5, range: 70 },
-        { x: 1150, y: canvas.height - 290, speed: 2, range: 100 }
+        { x: 450, y: canvas.height - 220, speed: 1.5, range: 70 },
+        { x: 1050, y: canvas.height - 290, speed: 2, range: 80 }
       ],
       traps: [
-        { x: 300, y: canvas.height - 60, w: 100, h: 20 },
-        { x: 900, y: canvas.height - 140, w: 100, h: 20 }
+        { x: 100, y: canvas.height - 20, w: 1300, h: 20 }
       ]
     }
   ];
@@ -340,25 +392,34 @@ function Init() {
   highscoreText = new Text('Highscore: ' + highscore, canvas.width - 25, 25, 'right', '#212121', scoreFontSize);
   authorText = new Text('create by RICKI', canvas.width - 25, canvas.height - 25, 'right', 'rgba(0, 0, 0, 0.3)', authorFontSize);
 
-  // Define touch controls based on canvas size
-  const buttonSize = 80;
-  const buttonMargin = 20;
+  // Define touch controls based on canvas size (responsive for mobile)
+  const isMobile = canvas.width < 768;
+  const buttonSize = isMobile ? 60 : 80;
+  const buttonMargin = isMobile ? 15 : 20;
   touchControls = {
       left: { x: buttonMargin, y: canvas.height - buttonSize - buttonMargin, w: buttonSize, h: buttonSize, key: 'ArrowLeft' },
       right: { x: buttonSize + buttonMargin * 2, y: canvas.height - buttonSize - buttonMargin, w: buttonSize, h: buttonSize, key: 'ArrowRight' },
       jump: { x: canvas.width - buttonSize - buttonMargin, y: canvas.height - buttonSize - buttonMargin, w: buttonSize, h: buttonSize, key: 'ArrowUp' }
   };
 
-  // We need to load the player image before starting the game
-  let playerImage = new Image();
-  playerImage.src = 'assets/mario_cat.png';
-  playerImage.onload = function() {
-    player = new Player(50, canvas.height - 150, 50, 50);
-    player.image = playerImage;
-
-    LoadLevel(currentLevel);
-    requestAnimationFrame(Update);
+  // Preload all game resources
+  function resourceLoaded() {
+    resourcesLoaded++;
+    if (resourcesLoaded === totalResources) {
+      // All resources loaded, start game
+      player = new Player(50, canvas.height - 150, 50, 50);
+      LoadLevel(currentLevel);
+      requestAnimationFrame(Update);
+    }
   }
+
+  resources.playerImage.src = 'assets/mario_cat.png';
+  resources.playerImage.onload = resourceLoaded;
+  resources.playerImage.onerror = resourceLoaded; // Fallback on error
+
+  resources.enemyImage.src = 'assets/enemy.png';
+  resources.enemyImage.onload = resourceLoaded;
+  resources.enemyImage.onerror = resourceLoaded; // Fallback on error
 }
 
 function LoadLevel(levelIndex) {
